@@ -1,3 +1,6 @@
 BitBetter/.keys/*.pem
 BitBetter/.keys/*.pfx
 BitBetter/dist/*.tar
+appsettings.json
+appsettings.SelfHosted.json
+/tmp/
