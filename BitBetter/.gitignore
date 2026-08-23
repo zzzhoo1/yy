@@ -1,3 +1,5 @@
 dist/*.tar
 src/bitBetter/bin/
 src/bitBetter/obj/
+dist/initdb/bin/
+dist/initdb/obj/

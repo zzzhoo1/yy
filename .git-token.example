@@ -1,0 +1,5 @@
+# GitHub fine-grained Personal Access Token (Contents: Read and write)
+# Used to push this repo (zzzhoo1/yy) to GitHub.
+# Replace <YOUR_PAT> with your actual token and use it as the password:
+#   https://x-access-token:<YOUR_PAT>@github.com/zzzhoo1/yy.git
+<YOUR_PAT>
