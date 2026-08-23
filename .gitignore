@@ -4,3 +4,4 @@ BitBetter/dist/*.tar
 appsettings.json
 appsettings.SelfHosted.json
 /tmp/
+core
