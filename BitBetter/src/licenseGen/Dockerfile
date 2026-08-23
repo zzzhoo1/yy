@@ -1,0 +1,17 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+WORKDIR /licenseGen
+
+COPY . /licenseGen
+
+RUN set -e; set -x; \
+	dotnet add package Newtonsoft.Json --version 13.0.1 \
+	&& dotnet restore \
+	&& dotnet publish
+
+
+FROM bitbetter/api
+
+COPY --from=build /licenseGen/bin/Release/net10.0/publish/* /app/
+
+ENTRYPOINT [ "dotnet", "/app/licenseGen.dll", "--core", "/app/Core.dll", "--executable", "/app/Api", "--cert", "/cert.pfx" ]

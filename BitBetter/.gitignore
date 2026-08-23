@@ -1,0 +1,3 @@
+dist/*.tar
+src/bitBetter/bin/
+src/bitBetter/obj/
