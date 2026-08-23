@@ -167,6 +167,39 @@ Additional, instead of interactive mode, you can also pass the parameters direct
 
 ---
 
+## Running without Docker
+
+BitBetter's patched Bitwarden services can also be run **without Docker** in a plain .NET environment. This is useful for sandboxes, CI, or minimal hosts that lack container support. The following helpers are provided under `dist/`:
+
+- **`dist/run-identity.sh`** — starts the patched Identity service (port 5001).
+- **`dist/run-api.sh`** — starts the patched API service (port 5000).
+- **`dist/init-sandbox.sh`** — one-shot: builds the DB init tool, creates the SQLite database + test user, then starts Identity and API.
+- **`dist/initdb/`** — standalone .NET tool that creates the SQLite schema (`EnsureCreated`) and inserts a test user with a DataProtection-encrypted master password. Parameterized via env vars (`BW_APP_DIR`, `BW_DATA_DIR`, `BW_EMAIL`, `BW_PASSWORD`, `BW_KEY`, `BW_INSERT_USER`).
+- **`dist/gen-license.sh`** — generates a signed license without Docker (see below).
+- **`dist/load-images.sh`** / **`dist/rebuild-in-sandbox.sh`** — load or rebuild the patched image tarballs (`.tar`) using [crane](https://github.com/google/go-containerregistry) instead of a Docker daemon.
+
+### Generating a license without Docker
+
+The `licenseGen` tool is a plain .NET console app and does **not** require Docker. It needs the patched `Core.dll` (from the extracted app dir) and the self-signed `cert.pfx`:
+
+```bash
+# from the BitBetter directory
+./dist/gen-license.sh user "Test User" "test@example.com" acd79ad4-9919-438b-a889-b4af00c6af05
+./dist/gen-license.sh org  "Test Org"   "org@example.com"  11111111-2222-3333-4444-555555555555
+```
+
+Redirect to a file to save:
+
+```bash
+./dist/gen-license.sh user "Test User" "test@example.com" acd79ad4-9919-438b-a889-b4af00c6af05 > user-license.json
+```
+
+Set `DOTNET` to a .NET 10 SDK path (default `/opt/dotnet10/dotnet`) and `CORE` to the patched `Core.dll` if they differ from the defaults.
+
+Sample generated licenses are committed under `dist/licenses/` for reference.
+
+---
+
 
 # FAQ: Questions you might have.
 

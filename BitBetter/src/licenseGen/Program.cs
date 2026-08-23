@@ -16,10 +16,38 @@ namespace BitwardenSelfLicensor
     {
         public static int Main(string[] args)
         {
+            // Resolve Bitwarden's bundled assemblies (e.g. Data.dll) from the Core.dll directory
+            // so that reflection over Core types (UserLicense/OrganizationLicense) works without
+            // Docker and without copying DLLs into this tool's output folder.
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, e) =>
+            {
+                var name = new System.Reflection.AssemblyName(e.Name).Name;
+                var coreArg = args.Length > 0 ? GetArgValue(args, "--core") : null;
+                var execArg = args.Length > 0 ? GetArgValue(args, "--executable") : null;
+                var dir = coreArg != null && File.Exists(coreArg) ? Path.GetDirectoryName(Path.GetFullPath(coreArg))
+                        : execArg != null && File.Exists(execArg) ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(execArg)), "extract")
+                        : null;
+                if (dir == null) return null;
+                var candidate = Path.Combine(dir, name + ".dll");
+                if (File.Exists(candidate))
+                {
+                    try { return AssemblyLoadContext.Default.LoadFromAssemblyPath(candidate); }
+                    catch { /* fall through */ }
+                }
+                return null;
+            };
+
             var app = new CommandLineApplication();
             var cert = app.Option("--cert", "cert file", CommandOptionType.SingleValue);
             var coreDll = app.Option("--core", "path to core dll", CommandOptionType.SingleValue);
             var exec = app.Option("--executable", "path to Bitwarden single file executable", CommandOptionType.SingleValue);
+
+            string GetArgValue(string[] a, string flag)
+            {
+                for (int i = 0; i < a.Length - 1; i++)
+                    if (a[i] == flag) return a[i + 1];
+                return null;
+            }
 
             bool ExecExists() => File.Exists(exec.Value());
             bool CertExists() => File.Exists(cert.Value());

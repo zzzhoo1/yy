@@ -1,5 +1,7 @@
 dist/*.tar
 src/bitBetter/bin/
 src/bitBetter/obj/
+src/licenseGen/bin/
+src/licenseGen/obj/
 dist/initdb/bin/
 dist/initdb/obj/
