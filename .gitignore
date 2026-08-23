@@ -1,2 +1,3 @@
 BitBetter/.keys/*.pem
 BitBetter/.keys/*.pfx
+BitBetter/dist/*.tar
