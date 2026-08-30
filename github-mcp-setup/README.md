@@ -6,21 +6,26 @@ One-click setup to expose a local GitHub MCP server as a public Streamable HTTP 
 
 ```
 Perplexity
-   ↓ (HTTPS)
+   ↓ (HTTPS, Authorization: Bearer <key>)
 Cloudflare Quick Tunnel (mcp-tunnel.sh)
-   ↓ forwards to local :8080
-mcp-proxy (Streamable HTTP)  ← mcp-github-http.sh
+   ↓ forwards to local :8081
+auth-proxy (auth-proxy.js)  ← converts Bearer → X-API-Key
+   ↓
+mcp-proxy (Streamable HTTP, :8080)  ← mcp-github-http.sh
    ↓ stdio
 GitHub MCP server (npx @modelcontextprotocol/server-github)
    ↓
 GitHub API
 ```
 
+The `auth-proxy` layer lets Perplexity authenticate with its native `authorization` field (which sends `Authorization: Bearer <token>`), while the backend `mcp-proxy` only accepts `X-API-Key`. Both auth methods are accepted.
+
 ## Files
 
 - `setup-github-mcp.sh` — main setup script (install/start/stop/status/url/test)
 - `mcp-github-http.sh` — manages the local mcp-proxy bridge (port 8080)
-- `mcp-tunnel.sh` — manages the Cloudflare Quick Tunnel for port 8080
+- `auth-proxy.js` + `auth-proxy.sh` — Bearer→X-API-Key conversion proxy (port 8081)
+- `mcp-tunnel.sh` — manages the Cloudflare Quick Tunnel for port 8081
 
 ## Usage
 
@@ -45,18 +50,18 @@ chmod +x setup-github-mcp.sh
 The public endpoint is protected by an API key. Requests without a valid key return `401`.
 
 - Key is stored at `/root/.mcp-api-key` (or override with `MCP_API_KEY` env var).
-- Send it via the `X-API-Key` header.
+- Rotate: `openssl rand -hex 16 > /root/.mcp-api-key && ./mcp-github-http.sh restart`
 
 ## Perplexity configuration
 
-Perplexity's `mcp` tool supports an `authorization` field for the bearer token. For the `X-API-Key` header, use the `headers` field:
+Use the `authorization` field (Perplexity sends it as `Authorization: Bearer`):
 
 ```json
 {
   "type": "mcp",
   "server_label": "github",
   "server_url": "https://<your-tunnel>.trycloudflare.com/mcp",
-  "headers": { "X-API-Key": "<your-api-key>" }
+  "authorization": "<your-api-key>"
 }
 ```
 
