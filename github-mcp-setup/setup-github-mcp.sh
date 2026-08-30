@@ -87,8 +87,8 @@ PORT="${MCP_HTTP_PORT:-8080}"
 LOG_FILE=/var/log/mcp-github-http.log
 PID_FILE=/var/run/mcp-github-http.pid
 API_KEY_FILE=/root/.mcp-api-key
-if [ -z "${GITHUB_TOKEN:-}" ] && [ -f /root/.openclaw/.env ]; then
-  export GITHUB_TOKEN="$(grep -E '^GITHUB_TOKEN=' /root/.openclaw/.env | head -1 | cut -d= -f2-)"
+if [ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ] && [ -f /root/.openclaw/.env ]; then
+  export GITHUB_PERSONAL_ACCESS_TOKEN="$(grep -E '^GITHUB_TOKEN=' /root/.openclaw/.env | head -1 | cut -d= -f2-)"
 fi
 # 读取 API key（若存在）
 API_KEY_ARG=""
