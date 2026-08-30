@@ -112,7 +112,13 @@ start() {
   fi
 }
 stop() {
-  if is_running; then kill "$(cat "$PID_FILE")" 2>/dev/null; rm -f "$PID_FILE"; echo "已停止"; else echo "未在运行"; fi
+  if is_running; then kill "$(cat "$PID_FILE")" 2>/dev/null; fi
+  # 杀掉整个进程树：mcp-proxy 及其 npx/server-github 子进程
+  pkill -f "mcp-proxy --port $PORT" 2>/dev/null
+  pkill -f "server-github" 2>/dev/null
+  rm -f "$PID_FILE"
+  sleep 1
+  echo "已停止"
 }
 status() {
   if is_running; then
@@ -233,10 +239,19 @@ test_call() {
   url="$($MCP_TUNNEL_SCRIPT url 2>/dev/null)"
   [ -z "$url" ] && { fail "未获取到公网 URL"; return 1; }
 
+  # 读取 API key（若存在）
+  local auth_args=()
+  if [ -n "${MCP_API_KEY:-}" ]; then
+    auth_args=(-H "X-API-Key: $MCP_API_KEY")
+  elif [ -f /root/.mcp-api-key ]; then
+    auth_args=(-H "X-API-Key: $(cat /root/.mcp-api-key)")
+  fi
+
   # initialize 拿 session
   local sid
   sid=$(curl -s -D - -o /dev/null -X POST "$url/mcp" \
     -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+    "${auth_args[@]}" \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}' \
     2>/dev/null | grep -i "mcp-session-id:" | tr -d '\r' | awk '{print $2}')
 
@@ -246,6 +261,7 @@ test_call() {
   resp=$(curl -s -X POST "$url/mcp" \
     -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
     -H "Mcp-Session-Id: $sid" \
+    "${auth_args[@]}" \
     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_repositories","arguments":{"query":"openclaw"}}}' 2>/dev/null)
 
   if echo "$resp" | grep -q "total_count"; then
