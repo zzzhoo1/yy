@@ -1,16 +1,14 @@
 # GitHub MCP Setup
 
-一键搭建「GitHub MCP → Streamable HTTP → Cloudflare Quick Tunnel」链路，
-把本地 stdio 的 GitHub MCP server 暴露为公网可访问的 MCP 端点，
-供 Perplexity 等远程 MCP 客户端连接。
+One-click setup to expose a local GitHub MCP server as a public Streamable HTTP endpoint via Cloudflare Quick Tunnel, for use with Perplexity and other remote MCP clients.
 
-## 架构
+## Architecture
 
 ```
 Perplexity
    ↓ (HTTPS)
 Cloudflare Quick Tunnel (mcp-tunnel.sh)
-   ↓ 转发到本机 :8080
+   ↓ forwards to local :8080
 mcp-proxy (Streamable HTTP)  ← mcp-github-http.sh
    ↓ stdio
 GitHub MCP server (npx @modelcontextprotocol/server-github)
@@ -18,38 +16,48 @@ GitHub MCP server (npx @modelcontextprotocol/server-github)
 GitHub API
 ```
 
-## 文件
+## Files
 
-- `setup-github-mcp.sh` — 主搭建脚本（install/start/stop/status/url/test）
-- `mcp-github-http.sh` — 管理本地 mcp-proxy 桥接（端口 8080）
-- `mcp-tunnel.sh` — 管理 8080 的 Cloudflare Quick Tunnel
+- `setup-github-mcp.sh` — main setup script (install/start/stop/status/url/test)
+- `mcp-github-http.sh` — manages the local mcp-proxy bridge (port 8080)
+- `mcp-tunnel.sh` — manages the Cloudflare Quick Tunnel for port 8080
 
-## 用法
+## Usage
 
 ```bash
 chmod +x setup-github-mcp.sh
-./setup-github-mcp.sh install   # 完整搭建
-./setup-github-mcp.sh status    # 查看状态与公网 URL
-./setup-github-mcp.sh test      # 真实 GitHub 调用测试
-./setup-github-mcp.sh stop      # 停止全部
-./setup-github-mcp.sh start     # 重新启动
-./setup-github-mcp.sh url       # 打印公网 MCP URL
+./setup-github-mcp.sh install   # full setup
+./setup-github-mcp.sh status    # view status & public URL
+./setup-github-mcp.sh test      # real GitHub call test
+./setup-github-mcp.sh stop      # stop everything
+./setup-github-mcp.sh start     # restart
+./setup-github-mcp.sh url       # print public MCP URL
 ```
 
-## 前置条件
+## Prerequisites
 
 - Node.js / npx
 - cloudflared
-- `GITHUB_TOKEN` 环境变量（或写入 `~/.openclaw/.env`）
+- `GITHUB_TOKEN` env var (or in `~/.openclaw/.env`)
 
-## 在 Perplexity 中配置
+## API Key Authentication
+
+The public endpoint is protected by an API key. Requests without a valid key return `401`.
+
+- Key is stored at `/root/.mcp-api-key` (or override with `MCP_API_KEY` env var).
+- Send it via the `X-API-Key` header.
+
+## Perplexity configuration
+
+Perplexity's `mcp` tool supports an `authorization` field for the bearer token. For the `X-API-Key` header, use the `headers` field:
 
 ```json
 {
   "type": "mcp",
   "server_label": "github",
-  "server_url": "https://<your-tunnel>.trycloudflare.com/mcp"
+  "server_url": "https://<your-tunnel>.trycloudflare.com/mcp",
+  "headers": { "X-API-Key": "<your-api-key>" }
 }
 ```
 
-Transport 选择 **Streamable HTTP**。
+Transport: **Streamable HTTP**.
