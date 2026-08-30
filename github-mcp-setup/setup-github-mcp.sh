@@ -84,14 +84,22 @@ set -u
 PORT="${MCP_HTTP_PORT:-8080}"
 LOG_FILE=/var/log/mcp-github-http.log
 PID_FILE=/var/run/mcp-github-http.pid
+API_KEY_FILE=/root/.mcp-api-key
 if [ -z "${GITHUB_TOKEN:-}" ] && [ -f /root/.openclaw/.env ]; then
   export GITHUB_TOKEN="$(grep -E '^GITHUB_TOKEN=' /root/.openclaw/.env | head -1 | cut -d= -f2-)"
+fi
+# 读取 API key（若存在）
+API_KEY_ARG=""
+if [ -n "${MCP_API_KEY:-}" ]; then
+  API_KEY_ARG="--apiKey $MCP_API_KEY"
+elif [ -f "$API_KEY_FILE" ]; then
+  API_KEY_ARG="--apiKey $(cat "$API_KEY_FILE")"
 fi
 is_running() { [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; }
 start() {
   if is_running; then echo "已运行 (pid $(cat "$PID_FILE"))"; return 0; fi
   echo "启动 GitHub MCP HTTP 桥接 (端口 $PORT) ..."
-  nohup npx -y mcp-proxy --port "$PORT" --host 0.0.0.0 \
+  nohup npx -y mcp-proxy --port "$PORT" --host 0.0.0.0 $API_KEY_ARG \
     -- npx -y @modelcontextprotocol/server-github \
     >> "$LOG_FILE" 2>&1 &
   echo "$!" > "$PID_FILE"
