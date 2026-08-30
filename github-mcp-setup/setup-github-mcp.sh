@@ -24,9 +24,11 @@ set -u
 
 # ---------- 配置 ----------
 MCP_HTTP_PORT="${MCP_HTTP_PORT:-8080}"
-MCP_TUNNEL_TARGET="http://127.0.0.1:${MCP_HTTP_PORT}"
+AUTH_PROXY_PORT="${AUTH_PROXY_PORT:-8081}"
+MCP_TUNNEL_TARGET="http://127.0.0.1:${AUTH_PROXY_PORT}"
 ENV_FILE=/root/.openclaw/.env
 MCP_PROXY_SCRIPT=/root/mcp-github-http.sh
+AUTH_PROXY_SCRIPT=/root/auth-proxy.sh
 MCP_TUNNEL_SCRIPT=/root/mcp-tunnel.sh
 GATEWAY_TUNNEL_SCRIPT=/root/start-tunnel.sh
 LOG_FILE=/var/log/mcp-github-http.log
@@ -144,7 +146,7 @@ write_mcp_tunnel_script() {
   cat > "$MCP_TUNNEL_SCRIPT" <<'EOF'
 #!/usr/bin/env bash
 set -u
-TARGET="${MCP_TUNNEL_TARGET:-http://127.0.0.1:8080}"
+TARGET="${MCP_TUNNEL_TARGET:-http://127.0.0.1:8081}"
 LOG_FILE=/var/log/cloudflared-mcp.log
 PID_FILE=/var/run/cloudflared-mcp.pid
 LOCK_FILE=/var/run/cloudflared-mcp.lock
@@ -201,16 +203,68 @@ EOF
   chmod +x "$MCP_TUNNEL_SCRIPT"
 }
 
+write_auth_proxy_script() {
+  cat > "$AUTH_PROXY_SCRIPT" <<'EOF'
+#!/usr/bin/env bash
+set -u
+PORT="${AUTH_PROXY_PORT:-8081}"
+UPSTREAM="${AUTH_PROXY_UPSTREAM:-http://127.0.0.1:8080}"
+LOG_FILE=/var/log/auth-proxy.log
+PID_FILE=/var/run/auth-proxy.pid
+is_running() { [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; }
+start() {
+  if is_running; then echo "已运行 (pid $(cat "$PID_FILE"))"; return 0; fi
+  echo "启动认证转换代理 (端口 $PORT -> $UPSTREAM) ..."
+  nohup env AUTH_PROXY_PORT="$PORT" AUTH_PROXY_UPSTREAM="$UPSTREAM" \
+    node /root/auth-proxy.js >> "$LOG_FILE" 2>&1 &
+  echo "$!" > "$PID_FILE"
+  sleep 2
+  if is_running; then
+    echo "已启动 (pid $(cat "$PID_FILE"))"
+  else
+    echo "启动失败，查看日志: $LOG_FILE"; tail -5 "$LOG_FILE"; return 1
+  fi
+}
+stop() {
+  if is_running; then kill "$(cat "$PID_FILE")" 2>/dev/null; rm -f "$PID_FILE"; echo "已停止"; else echo "未在运行"; fi
+}
+status() {
+  if is_running; then
+    echo "状态: 运行中 (pid $(cat "$PID_FILE"))"
+    echo "端口: $PORT -> $UPSTREAM"
+    echo "日志: $LOG_FILE"
+  else
+    echo "状态: 未运行"
+  fi
+}
+case "${1:-start}" in
+  start)  start ;;
+  stop)   stop ;;
+  restart) stop; start ;;
+  status) status ;;
+  *)      echo "用法: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
+EOF
+  chmod +x "$AUTH_PROXY_SCRIPT"
+}
+
 # ---------- 验证 ----------
 verify() {
   log "VERIFY" "验证本地与公网 MCP 端点..."
   local ok_all=1
+  local key=""
+  if [ -n "${MCP_API_KEY:-}" ]; then
+    key="$MCP_API_KEY"
+  elif [ -f /root/.mcp-api-key ]; then
+    key="$(cat /root/.mcp-api-key)"
+  fi
 
-  # 1. 本机端点
-  if curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${MCP_HTTP_PORT}/mcp" \
+  # 1. 本机端点 (auth-proxy 8081)
+  if curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:${AUTH_PROXY_PORT}/mcp" \
        -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+       -H "Authorization: Bearer $key" \
        -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"setup","version":"1"}}}' 2>/dev/null | grep -q 200; then
-    ok "本机端点 http://127.0.0.1:${MCP_HTTP_PORT}/mcp 响应 200"
+    ok "本机端点 http://127.0.0.1:${AUTH_PROXY_PORT}/mcp 响应 200"
   else
     fail "本机端点无响应"; ok_all=0
   fi
@@ -221,6 +275,7 @@ verify() {
   if [ -n "$url" ]; then
     if curl -s -o /dev/null -w "%{http_code}" -X POST "$url/mcp" \
          -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+         -H "Authorization: Bearer $key" \
          -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"setup","version":"1"}}}' 2>/dev/null | grep -q 200; then
       ok "公网端点 $url/mcp 响应 200"
     else
@@ -283,11 +338,15 @@ case "${1:-install}" in
     check_deps || { echo; echo "依赖缺失，请先安装后重试。"; exit 1; }
     echo
     write_mcp_proxy_script
+    write_auth_proxy_script
     write_mcp_tunnel_script
-    ok "组件脚本已生成: $MCP_PROXY_SCRIPT, $MCP_TUNNEL_SCRIPT"
+    ok "组件脚本已生成: $MCP_PROXY_SCRIPT, $AUTH_PROXY_SCRIPT, $MCP_TUNNEL_SCRIPT"
     echo
     log "START" "启动 GitHub MCP HTTP 桥接..."
     "$MCP_PROXY_SCRIPT" start || exit 1
+    echo
+    log "START" "启动认证转换代理..."
+    "$AUTH_PROXY_SCRIPT" start || exit 1
     echo
     log "START" "启动 Cloudflare MCP 隧道..."
     "$MCP_TUNNEL_SCRIPT" start || exit 1
@@ -303,7 +362,8 @@ case "${1:-install}" in
     echo "  {"
     echo "    \"type\": \"mcp\","
     echo "    \"server_label\": \"github\","
-    echo "    \"server_url\": \"$($MCP_TUNNEL_SCRIPT url)/mcp\""
+    echo "    \"server_url\": \"$($MCP_TUNNEL_SCRIPT url)/mcp\","
+    echo "    \"authorization\": \"<API_KEY>\""
     echo "  }"
     echo
     echo "常用命令:"
@@ -315,17 +375,22 @@ case "${1:-install}" in
   start)
     load_token
     "$MCP_PROXY_SCRIPT" start
+    "$AUTH_PROXY_SCRIPT" start
     "$MCP_TUNNEL_SCRIPT" start
     echo "公网 MCP 端点: $($MCP_TUNNEL_SCRIPT url)/mcp"
     ;;
   stop)
     "$MCP_TUNNEL_SCRIPT" stop
+    "$AUTH_PROXY_SCRIPT" stop
     "$MCP_PROXY_SCRIPT" stop
     echo "已停止全部组件"
     ;;
   status)
     echo "=== GitHub MCP HTTP 桥接 ==="
     "$MCP_PROXY_SCRIPT" status
+    echo
+    echo "=== 认证转换代理 ==="
+    "$AUTH_PROXY_SCRIPT" status
     echo
     echo "=== Cloudflare MCP 隧道 ==="
     "$MCP_TUNNEL_SCRIPT" status
