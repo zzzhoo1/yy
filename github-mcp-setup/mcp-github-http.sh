@@ -31,7 +31,13 @@ start() {
   fi
 }
 stop() {
-  if is_running; then kill "$(cat "$PID_FILE")" 2>/dev/null; rm -f "$PID_FILE"; echo "已停止"; else echo "未在运行"; fi
+  if is_running; then kill "$(cat "$PID_FILE")" 2>/dev/null; fi
+  # 杀掉整个进程树：mcp-proxy 及其 npx/server-github 子进程
+  pkill -f "mcp-proxy --port $PORT" 2>/dev/null
+  pkill -f "server-github" 2>/dev/null
+  rm -f "$PID_FILE"
+  sleep 1
+  echo "已停止"
 }
 status() {
   if is_running; then
