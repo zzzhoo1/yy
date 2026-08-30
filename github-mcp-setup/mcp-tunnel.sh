@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -u
-TARGET="${MCP_TUNNEL_TARGET:-http://127.0.0.1:8080}"
+TARGET="${MCP_TUNNEL_TARGET:-http://127.0.0.1:8081}"
 LOG_FILE=/var/log/cloudflared-mcp.log
 PID_FILE=/var/run/cloudflared-mcp.pid
 LOCK_FILE=/var/run/cloudflared-mcp.lock
