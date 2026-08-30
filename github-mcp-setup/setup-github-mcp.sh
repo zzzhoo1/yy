@@ -132,8 +132,9 @@ status() {
 case "${1:-start}" in
   start)  start ;;
   stop)   stop ;;
+  restart) stop; start ;;
   status) status ;;
-  *)      echo "用法: $0 {start|stop|status}"; exit 1 ;;
+  *)      echo "用法: $0 {start|stop|restart|status}"; exit 1 ;;
 esac
 EOF
   chmod +x "$MCP_PROXY_SCRIPT"
