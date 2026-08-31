@@ -85,7 +85,7 @@ Caura core-api  (:8000)  ← REST + MCP
 Caura core-storage-api  (:8002)  → PostgreSQL 16 + pgvector
 ```
 
-Caura runs in **standalone mode** (`IS_STANDALONE=true`) with fake providers, so no API key is needed. The MCP endpoint exposes 12 tools (`caura_write`, `caura_recall`, `caura_manage`, `caura_list`, `caura_doc`, `caura_entity_get`, `caura_tune`, `caura_insights`, `caura_evolve`, `caura_stats`, `caura_keystones`, `caura_keystones_set`).
+Caura runs in **standalone mode** (`IS_STANDALONE=true`) with **real semantic search**: local `BAAI/bge-m3` embeddings (1024-dim, multilingual) for vector search, and LLM enrichment via an OpenAI-compatible local proxy (gpt-5.6). The MCP endpoint exposes 12 tools (`caura_write`, `caura_recall`, `caura_manage`, `caura_list`, `caura_doc`, `caura_entity_get`, `caura_tune`, `caura_insights`, `caura_evolve`, `caura_stats`, `caura_keystones`, `caura_keystones_set`).
 
 ## Files
 
@@ -110,12 +110,17 @@ chmod +x caura-setup.sh
 
 ## What the script does
 
-1. **System deps** — PostgreSQL 16 + pgvector, Redis, Python 3.12 (via uv), cloudflared, Claude Code
+1. **System deps** — PostgreSQL 16 + pgvector, Redis, Python 3.12 (via uv), cloudflared, Claude Code, sentence-transformers + torch (CPU)
 2. **Clone** — `caura-ai/caura`
 3. **Database** — create user/db, enable pgvector, run alembic migrations
 4. **Services** — core-storage-api (:8002) + core-api (:8000), started with `setsid` so they survive the session ending
 5. **Tunnel** — Cloudflare Quick Tunnel exposing :8000 publicly
 6. **Claude Code** — register the `caura` MCP server
+
+### Embeddings & enrichment
+
+- **Semantic search**: local `BAAI/bge-m3` model (1024-dim, multilingual) — no cloud API needed. Loaded in fp16 to fit memory-constrained hosts, and warmed up on startup to avoid first-request timeouts.
+- **LLM enrichment** (titles, tags, summaries, entity extraction): routed through an OpenAI-compatible local proxy at `http://172.17.0.1:3001/v1` using the `gpt-5.6` model. Point `OPENAI_CHAT_BASE_URL` elsewhere if you have a real OpenAI/Anthropic key.
 
 ## Ports
 
