@@ -66,3 +66,78 @@ Use the `authorization` field (Perplexity sends it as `Authorization: Bearer`):
 ```
 
 Transport: **Streamable HTTP**.
+
+---
+
+# Caura MCP Setup
+
+One-click local deployment of [Caura](https://github.com/caura-ai/caura) (formerly MemClaw) — a governed shared-memory server for AI agent fleets — exposed to the public via Cloudflare Quick Tunnel for use with Perplexity and other remote MCP clients.
+
+## Architecture
+
+```
+Perplexity
+   ↓ (HTTPS, Streamable HTTP /mcp)
+Cloudflare Quick Tunnel (caura-setup.sh step 5)
+   ↓ forwards to local :8000
+Caura core-api  (:8000)  ← REST + MCP
+   ↓
+Caura core-storage-api  (:8002)  → PostgreSQL 16 + pgvector
+```
+
+Caura runs in **standalone mode** (`IS_STANDALONE=true`) with fake providers, so no API key is needed. The MCP endpoint exposes 12 tools (`caura_write`, `caura_recall`, `caura_manage`, `caura_list`, `caura_doc`, `caura_entity_get`, `caura_tune`, `caura_insights`, `caura_evolve`, `caura_stats`, `caura_keystones`, `caura_keystones_set`).
+
+## Files
+
+- `caura-setup.sh` — full one-click setup (deps, database, services, tunnel, Claude Code MCP)
+- `caura-start.sh` — lightweight start script (storage + api only)
+
+## Usage
+
+```bash
+chmod +x caura-setup.sh
+./caura-setup.sh            # full setup (idempotent, safe to re-run)
+./caura-setup.sh status     # view status & public URL
+./caura-setup.sh tunnel-url # print public MCP URL
+./caura-setup.sh --no-tunnel  # setup without the tunnel
+./caura-setup.sh --no-claude  # setup without registering Claude Code MCP
+```
+
+> Tip: run detached so the script isn't killed when your terminal session ends:
+> ```bash
+> setsid ./caura-setup.sh > /tmp/caura-setup.log 2>&1 < /dev/null &
+> ```
+
+## What the script does
+
+1. **System deps** — PostgreSQL 16 + pgvector, Redis, Python 3.12 (via uv), cloudflared, Claude Code
+2. **Clone** — `caura-ai/caura`
+3. **Database** — create user/db, enable pgvector, run alembic migrations
+4. **Services** — core-storage-api (:8002) + core-api (:8000), started with `setsid` so they survive the session ending
+5. **Tunnel** — Cloudflare Quick Tunnel exposing :8000 publicly
+6. **Claude Code** — register the `caura` MCP server
+
+## Ports
+
+| Service | Port |
+|---|---|
+| core-api (REST + MCP) | 8000 |
+| core-storage-api | 8002 |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
+
+## Perplexity configuration
+
+Caura is MCP-native. Point Perplexity at the public URL:
+
+```json
+{
+  "type": "mcp",
+  "server_label": "caura",
+  "server_url": "https://<your-tunnel>.trycloudflare.com/mcp"
+}
+```
+
+Transport: **Streamable HTTP**. No API key required in standalone mode (a placeholder `X-API-Key` header is harmless).
+
+> Note: the Quick Tunnel URL is temporary — it changes whenever cloudflared restarts. For a stable URL, use a Cloudflare named tunnel with your own domain.
