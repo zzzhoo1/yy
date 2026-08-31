@@ -11,11 +11,11 @@
 #   6. 注册 MCP 到 Claude Code
 #
 # 用法：
-#   ./caura-setup.sh            # 完整搭建（幂等，可重复运行）
-#   ./caura-setup.sh --no-tunnel   # 不启动内网穿透
-#   ./caura-setup.sh --no-claude   # 不注册 Claude Code MCP
-#   ./caura-setup.sh status        # 查看当前运行状态
-#   ./caura-setup.sh tunnel-url    # 打印当前公网 URL
+#   ./setup.sh            # 完整搭建（幂等，可重复运行）
+#   ./setup.sh --no-tunnel   # 不启动内网穿透
+#   ./setup.sh --no-claude   # 不注册 Claude Code MCP
+#   ./setup.sh status        # 查看当前运行状态
+#   ./setup.sh tunnel-url    # 打印当前公网 URL
 # =============================================================================
 set -euo pipefail
 
@@ -27,7 +27,7 @@ PORT_STORAGE=8002
 DB_USER="memclaw"
 DB_PASS="${CAURA_DB_PASS:-changeme}"
 DB_NAME="memclaw"
-SHARED_SECRET="local-dev-shared-secret-123"
+SHARED_SECRET="${CAURA_SHARED_SECRET:-local-dev-shared-secret-123}"
 # 用固定 secret 便于重复运行；如需随机，改为 $(openssl rand -hex 16)
 # SHARED_SECRET="$(openssl rand -hex 16)"
 
@@ -53,6 +53,13 @@ start_service() {
   # the exec session ending (SIGTERM to the group would otherwise kill it).
   ( cd "$REPO_DIR" && \
     CORE_STORAGE_SHARED_SECRET="$SHARED_SECRET" \
+    EMBEDDING_PROVIDER="local" \
+    ENTITY_EXTRACTION_PROVIDER="openai" \
+    OPENAI_API_KEY="localhost-proxy-api-key-not-real" \
+    OPENAI_CHAT_BASE_URL="http://172.17.0.1:3001/v1" \
+    ENTITY_EXTRACTION_MODEL="gpt-5.6" \
+    LLM_FALLBACK_MODEL_OPENAI="gpt-5.6" \
+    USE_LLM_FOR_MEMORY_CREATION="true" \
     PYTHONPATH="$REPO_DIR/common:$REPO_DIR/core-storage-api/src:$REPO_DIR/core-api/src" \
     setsid "$REPO_DIR/venv/bin/python" -m uvicorn "$app" --host 0.0.0.0 --port "$port" \
       > "$logfile" 2>&1 < /dev/null & )
@@ -112,6 +119,15 @@ install_system_deps() {
     log "Installing Claude Code"
     npm install -g @anthropic-ai/claude-code 2>&1 | tail -1 || true
   fi
+
+  # 本地 embedding 依赖（bge-m3）：sentence-transformers + torch (CPU)
+  if ! "$REPO_DIR/venv/bin/python" -c "import sentence_transformers" 2>/dev/null; then
+    log "Installing sentence-transformers + torch (CPU) for local embeddings"
+    ( cd "$REPO_DIR" && \
+      uv pip install --python "$REPO_DIR/venv/bin/python" \
+        --index-url https://download.pytorch.org/whl/cpu torch 2>&1 | tail -1 && \
+      uv pip install --python "$REPO_DIR/venv/bin/python" sentence-transformers 2>&1 | tail -1 )
+  fi
 }
 
 # =============================================================================
@@ -162,16 +178,20 @@ ENVIRONMENT=development
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=5432
 POSTGRES_USER=$DB_USER
-POSTGRES_PASSWORD=changeme
+POSTGRES_PASSWORD=$DB_PASS
 POSTGRES_DB=$DB_NAME
 POSTGRES_REQUIRE_SSL=false
 IS_STANDALONE=true
-EMBEDDING_PROVIDER=fake
-ENTITY_EXTRACTION_PROVIDER=fake
-USE_LLM_FOR_MEMORY_CREATION=false
+EMBEDDING_PROVIDER=local
+ENTITY_EXTRACTION_PROVIDER=openai
+USE_LLM_FOR_MEMORY_CREATION=true
 CORS_ORIGINS=http://localhost:8000,http://localhost:3000
 REDIS_URL=redis://127.0.0.1:6379/0
 CORE_STORAGE_SHARED_SECRET=$SHARED_SECRET
+OPENAI_API_KEY=localhost-proxy-api-key-not-real
+OPENAI_CHAT_BASE_URL=http://172.17.0.1:3001/v1
+ENTITY_EXTRACTION_MODEL=gpt-5.6
+LLM_FALLBACK_MODEL_OPENAI=gpt-5.6
 EOF
   log ".env written"
 
@@ -200,6 +220,15 @@ start_services() {
   start_service "api" "core_api.app:app" "$PORT_API" "/tmp/caura-api.log"
   sleep 8
   log "Health: $(curl -s http://localhost:$PORT_API/api/v1/health)"
+  # 预热本地 embedding 模型（bge-m3 首次加载 ~8s，会超 10s 请求超时导致 504）。
+  # 提前触发一次搜索让模型加载进内存，后续请求即时响应。
+  if grep -q "EMBEDDING_PROVIDER=local" "$REPO_DIR/.env" 2>/dev/null; then
+    log "Warming up local embedding model (bge-m3)..."
+    curl -s -m 60 -X POST "http://localhost:$PORT_API/api/v1/search" \
+      -H "X-API-Key: ***" -H "Content-Type: application/json" \
+      -d '{"tenant_id":"default","query":"warmup","top_k":1}' > /dev/null 2>&1
+    log "Model warmup done"
+  fi
 }
 
 # =============================================================================
@@ -235,7 +264,7 @@ register_claude() {
   log "=== 6/6 注册 Claude Code MCP ==="
   if have claude && curl -sf "http://localhost:8000/api/v1/health" >/dev/null 2>&1; then
     claude mcp add --transport http -s user caura http://localhost:8000/mcp \
-      --header "X-API-Key: changeme" 2>&1 | grep -E "Added|already" || true
+      --header "X-API-Key: ***" 2>&1 | grep -E "Added|already" || true
     log "Claude MCP:"
     claude mcp list 2>&1 | grep caura || true
   else
